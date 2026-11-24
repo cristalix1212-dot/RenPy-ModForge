@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ren'Py Mod Builder</title>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/htm@3.1.1/dist/htm.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.383.0/dist/umd/lucide.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+:root{color-scheme:dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+html,body,#root{height:100%}
+body{margin:0;background:#0b0d12;color:#e5e7eb;font-family:system-ui,-apple-system,sans-serif}
+@keyframes fin{from{opacity:0}to{opacity:1}}@keyframes blk{0%{opacity:0}50%{opacity:1}100%{opacity:0}}@keyframes hp{0%,100%{transform:translateX(0)}20%{transform:translateX(-50px)}40%{transform:translateX(50px)}60%{transform:translateX(-30px)}80%{transform:translateX(30px)}}@keyframes hp2{0%,100%{transform:translateX(0)}20%{transform:translateX(-50px)}40%{transform:translateX(50px)}60%{transform:translateX(-30px)}80%{transform:translateX(30px)}}
+::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:#2a2f3a;border-radius:4px}
+</style></head>
+<body><div id="root"></div>
+<script>
+const {useState,useRef,useEffect}=React;
+const html=htm.bind(React.createElement);
+const uid=()=>'a'+Math.random().toString(36).slice(2,9);
+const cl=(v,a,b)=>Math.min(b,Math.max(a,v));
+const I=({n,s=16})=>{const ic=window.lucide&&lucide.icons&&lucide.icons[n];if(!Array.isArray(ic))return null;
+const nodes=(ic[0]==='svg'&&Array.isArray(ic[2])?ic[2]:ic).filter(Array.isArray);
+return React.createElement('svg',{width:s,height:s,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2,strokeLinecap:'round',strokeLinejoin:'round',className:'shrink-0'},nodes.map(([t,a],i)=>React.createElement(t,{...a,key:i})))};
+const inp='w-full bg-[#14171f] border border-white/10 rounded px-2 py-1 text-sm outline-none focus:border-violet-500';
+const btn='flex items-center gap-1.5 px-2.5 py-1.5 rounded bg-white/5 hover:bg-white/10 text-sm text-left';
+const pri='flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-violet-600 hover:bg-violet-500 text-sm font-medium';
+const F=({t,children})=>html`<label className="block text-xs text-zinc-400 mb-3">${t}<div className="mt-1">${children}</div></label>`;
+const H=({t})=>html`<div className="text-[11px] uppercase tracking-wider text-zinc-500 mt-4 mb-2">${t}</div>`;
+const Chk=({v,on,t})=>html`<label className="flex items-center gap-2 text-sm cursor-pointer mb-3"><input type="checkbox" checked=${v} onChange=${e=>on(e.target.checked)} className="accent-violet-500"/>${t}</label>`;
+const ICON={bg:'Image',show:'User',hide:'EyeOff',say:'MessageSquare',code:'Code',menu:'GitBranch',if:'Split',set:'Variable',jump:'CornerDownRight',audio:'Music',scare:'Zap'};
+
+const calc=(bl,n)=>{let bg=null,spr={};bl.slice(0,n+1).forEach(b=>{if(b.type==='bg'){bg=b;spr={}}else if(b.type==='show')spr[b.assetId]=b;else if(b.type==='hide')delete spr[b.assetId]});const l=bl[n];
+  return{bg,spr,say:l&&l.type==='say'?l:null,menu:l&&l.type==='menu'?l.opts.map((o,j)=>({...o,j})):null}};
+const slug=t=>t.replace(/\.[^.]+$/,'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'')||'file';
+const fileMap=as=>{const u={},m={};as.forEach(a=>{const ext=((a.name.match(/\.([a-z0-9]+)$/i)||[])[1]||(a.kind==='audio'?'ogg':'png')).toLowerCase(),b=slug(a.name);let n=b,i=2;while(u[n+'.'+ext])n=b+'_'+i++;u[n+'.'+ext]=1;m[a.id]={base:n,file:n+'.'+ext,dir:a.kind==='audio'?'audio':a.kind==='font'?'gui':'images'}});return m};
+const vname=(v,i)=>((v.name||'').trim().replace(/[^\wа-яёА-ЯЁ]+/g,'_').replace(/^(\d)/,'v_$1'))||'var_'+i;
+
+const hx=v=>/^#[0-9a-fA-F]{6}$/.test(v||'')?v:'#ffffff';
+const rgba=(h,a)=>{const n=parseInt(hx(h).slice(1),16);return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`};
+const h8=(c,a)=>hx(c)+Math.round(a*255).toString(16).padStart(2,'0');
+const Q=t=>'"'+String(t).replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\n/g,'\\n')+'"';
+const FF='PF,system-ui,sans-serif';
+const DEF_SAY={x:.5,y:.96,w:1600,h:260,color:'#080a12',op:.78,radius:24,pad:40,size:42,img:'',qmOff:false,qm:{back:true,history:true,skip:true,auto:true,save:true},custom:''};
+const BTN=(id,label,y)=>({id,label,x:.08,y,w:420,h:90,size:44,color:'#ffffff',hover:'#c4b5fd',bg:'#000000',op:.45});
+const UI0={menu:{bg:'',music:'',btns:[BTN('start','Начать игру',.35),BTN('load','Загрузить',.47),BTN('prefs','Настройки',.59),BTN('quit','Выход',.71)]},
+  prefs:{fs:true,music:true,sfx:true,master:true,speed:true,auto:true,skipU:true,skipC:true,bg:'#0f1218',slider:'#7c3aed',btn:'#ffffff',hover:'#c4b5fd'},say:DEF_SAY,font:''};
+const HexIn=({v,on})=>html`<div className="flex gap-1"><input type="color" value=${hx(v)} onChange=${e=>on(e.target.value)} className="w-10 h-8 shrink-0 bg-transparent border-0 p-0"/><input className=${inp} value=${v} onChange=${e=>on(e.target.value)} placeholder="#FF4D4D"/></div>`;
+function DBtn({b,k,on,pick,upd}){const d=useRef(null),[h,setH]=useState(false);
+  return html`<div onPointerDown=${e=>{e.currentTarget.setPointerCapture(e.pointerId);d.current={px:e.clientX,py:e.clientY,x:b.x,y:b.y};pick(b.id)}}
+    onPointerMove=${e=>{const o=d.current;if(!o)return;upd(b.id,{x:cl(o.x+(e.clientX-o.px)/k/1920,0,1),y:cl(o.y+(e.clientY-o.py)/k/1080,0,1)})}} onPointerUp=${()=>{d.current=null}}
+    onPointerEnter=${()=>setH(true)} onPointerLeave=${()=>setH(false)}
+    style=${{position:'absolute',left:b.x*1920,top:b.y*1080,width:b.w,height:b.h,display:'flex',alignItems:'center',justifyContent:'center',background:rgba(b.bg,b.op),color:hx(h?b.hover:b.color),fontSize:b.size,fontFamily:FF,cursor:'move',touchAction:'none',userSelect:'none',outline:on?'6px dashed #a78bfa':'none',zIndex:1500}}>${b.label}</div>`}
+function Sprite({e,k,ed}){
+  const d=useRef(null),a=e.a,sw=a.w*e.scale,sh=a.h*e.scale,t=e.tr0;
+  const mv=ev=>{const s=d.current;if(!s)return;let x=s.x+(ev.clientX-s.px)/k,y=s.y+(ev.clientY-s.py)/k;
+    if(ed.clamp){x=cl(x,Math.min(0,1920-sw),Math.max(0,1920-sw));y=cl(y,Math.min(0,1080-sh),Math.max(0,1080-sh))}
+    ed.upd(e.id,{x:Math.round(x),y:Math.round(y)})};
+  return html`<img src=${a.src} draggable=${false}
+    onPointerDown=${ev=>{if(!ed)return;ev.currentTarget.setPointerCapture(ev.pointerId);d.current={px:ev.clientX,py:ev.clientY,x:e.x,y:e.y};ed.pick(e.id)}}
+    onPointerMove=${ev=>ed&&mv(ev)} onPointerUp=${()=>{d.current=null}}
+    style=${{position:'absolute',left:e.x,top:e.y,width:sw,height:sh,maxWidth:'none',zIndex:e.z||1,cursor:ed?'move':'default',touchAction:ed?'none':'auto',pointerEvents:ed?'auto':'none',
+      animation:e.fx?`fin ${e.fx}s linear`:'none',transition:t?['left','top','width','height'].map(q=>`${q} ${t}s linear`).join(','):'none',outline:ed&&ed.sel===e.id?'6px dashed #a78bfa':'none'}}/>`;
+}
+
+function Scene({pad,bg,prev,spr,say,menu,shake,blk,bd,ed,onMenu,empty,sty,extra,qmAct,qmOn}){
+  const D={...DEF_SAY,...(sty||{})},qi=D.qmOff?[]:[['back','Назад'],['history','История'],['skip','Пропуск'],['auto','Авто'],['save','Сохранить']].filter(x=>D.qm[x[0]]),bx=(1920-D.w)*D.x,by=(1080-D.h)*D.y,qy=by>=70?by-60:by+D.h+10,bg0=D.img?`url(${D.img}) center/100% 100% no-repeat`:rgba(D.color,D.op);
+  const st=useRef(null),[sz,setSz]=useState({w:600,h:340});
+  useEffect(()=>{const el=st.current,ro=new ResizeObserver(()=>setSz({w:el.clientWidth||1,h:el.clientHeight||1}));ro.observe(el);return()=>ro.disconnect()},[]);
+  const k=Math.max(.01,pad?.84*sz.w/1920:Math.min(sz.w/1920,sz.h/1080)),ox=pad?.08*sz.w:(sz.w-1920*k)/2,oy=pad?.08*sz.w:(sz.h-1080*k)/2;
+  const im=b=>b&&html`<img key=${b.n} src=${b.src} draggable=${false} style=${{position:'absolute',left:0,top:0,width:b.w,height:b.h,maxWidth:'none',animation:b.fx?`fin ${b.fx}s linear`:'none'}}/>`;
+  return html`<div ref=${st} className=${pad?'relative w-full overflow-hidden rounded-lg bg-[#07080b] select-none shrink-0':'relative w-full h-full overflow-hidden select-none'} style=${pad?{aspectRatio:'1 / 0.6325',maxWidth:'calc((100vh - 300px) / 0.6325)',marginInline:'auto'}:{}}>
+    <div className="absolute bg-black" style=${{left:ox,top:oy,width:1920,height:1080,transform:`scale(${k})`,transformOrigin:'0 0'}}>
+      <div style=${{position:'absolute',inset:0,animation:shake?(shake%2?'hp':'hp2')+' .5s':'none'}}>${im(prev)}${im(bg)}
+        ${spr.map(e=>html`<${Sprite} key=${e.n} e=${e} k=${k} ed=${ed}/>`)}</div>
+      ${say&&html`<div style=${{position:'absolute',left:bx,top:by,width:D.w,height:D.h,boxSizing:'border-box',padding:D.pad,borderRadius:D.radius,overflow:'hidden',fontFamily:FF,zIndex:1000,background:bg0}}>
+        <div style=${{fontSize:D.size,lineHeight:1.3,color:'#fff',whiteSpace:'pre-wrap'}}>${(say.text||'').replace(/\{w\}/g,' ▾')||'…'}</div></div>`}
+      ${say&&say.who?html`<div style=${{position:'absolute',left:bx+D.pad,top:by,transform:'translateY(calc(-100% - 6px))',padding:'6px 28px',borderRadius:Math.min(D.radius,40),background:rgba(D.color,D.op),fontFamily:FF,fontSize:D.size*1.05,fontWeight:700,color:say.color||'#c4b5fd',zIndex:1001,whiteSpace:'nowrap'}}>${say.who}</div>`:null}
+      ${say&&qi.length?html`<div style=${{position:'absolute',right:1920-bx-D.w,top:qy,display:'flex',gap:36,fontSize:30,fontFamily:FF,zIndex:1050}}>${qi.map(x=>qmAct?html`<button key=${x[0]} onClick=${ev=>{ev.stopPropagation();qmAct[x[0]]&&qmAct[x[0]]()}} style=${{color:qmOn&&qmOn[x[0]]?'#c4b5fd':'#e4e4e7',textShadow:'0 2px 6px #000'}}>${x[1]}</button>`:html`<span key=${x[0]} style=${{color:'#e4e4e7',textShadow:'0 2px 6px #000'}}>${x[1]}</span>`)}</div>`:null}
+      ${menu&&html`<div style=${{position:'absolute',inset:0,display:'flex',flexDirection:'column',justifyContent:'center',alignItems:'center',gap:28,zIndex:1100}}>${menu.map(o=>html`<button key=${o.j} onClick=${ev=>{ev.stopPropagation();onMenu&&onMenu(o.j)}} style=${{fontSize:44,color:'#fff',background:'rgba(8,10,18,.85)',border:'3px solid rgba(167,139,250,.7)',borderRadius:20,padding:'20px 80px',minWidth:900}}>${o.text||'…'}</button>`)}</div>`}
+      ${extra?extra(k):null}
+      ${blk?html`<div key=${blk} style=${{position:'absolute',inset:0,background:'#000',zIndex:2000,pointerEvents:'none',animation:`blk ${2*bd}s linear forwards`}}></div>`:null}
+      ${empty&&html`<div style=${{position:'absolute',inset:0,display:'grid',placeItems:'center',fontSize:48,color:'#52525b',textAlign:'center'}}>Загрузите фон и спрайты слева</div>`}
+    </div>
+    ${pad&&html`<div className="absolute pointer-events-none" style=${{left:ox,top:oy,width:1920*k,height:1080*k,boxShadow:'0 0 0 9999px rgba(11,13,18,.62)',outline:'1px solid #7c3aed'}}></div>`}
+  </div>`;
+}
+
+function gen(brs,assets,vars,frac,chars=[]){
+  const fm=fileMap(assets),A=Object.fromEntries(assets.map(a=>[a.id,a])),tg=id=>(A[id].kind==='bg'?'bg_':'spr_')+fm[id].base;
+  const q=t=>'"'+String(t).replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\n/g,'\\n')+'"';
+  const f=(v,m)=>frac?(v/m).toFixed(4):Math.round(v);
+  const vn=id=>{const i=vars.findIndex(v=>v.id===id);return i<0?'_нет_переменной':vname(vars[i],i)};
+  const lb=id=>id===brs[0].id?'start':'branch_'+brs.findIndex(b=>b.id===id);
+  const J=id=>id&&brs.some(b=>b.id===id)?'jump '+lb(id):'pass';
+  const lit=(id,val)=>{const v=vars.find(x=>x.id===id);return v&&v.type==='num'?(+val||0):(val?'True':'False')};
+  const trl=b=>{const d=b.dur||.5;return b.tr==='dissolve'?[`with Dissolve(${d})`]:b.tr==='fade'?[`with Fade(${d}, 0, ${d})`]:[]};
+  const Hd=["# script.rpy — создано в Ren'Py Mod Builder","# Картинки: game/images/, звуки: game/audio/",''],Bd=[],decl={};
+  vars.forEach((v,i)=>Hd.push(`default ${vname(v,i)} = ${v.type==='num'?(+v.init||0):(v.init?'True':'False')}`));Hd.push('');
+  const cv=c=>{const t=slug(c.name);return t==='file'?'char_'+(chars.indexOf(c)+1):t};chars.forEach(c=>Hd.push(`define ${cv(c)} = Character(${q(c.name)}, color="${hx(c.color)}")`));if(chars.length)Hd.push('');
+  const ds=a=>{if(!decl[a.id]){decl[a.id]=1;Hd.push(`image ${tg(a.id)} = "images/${fm[a.id].file}"`)}};
+  brs.forEach(br=>{Bd.push('',`label ${lb(br.id)}:`);const on=new Set();
+    br.blocks.forEach(b=>{const a=A[b.assetId];let L=[];
+      if(b.type==='bg'&&a){const key=a.id+':'+b.w+'x'+b.h;if(!decl[key]){const first=!Object.keys(decl).some(x=>x.startsWith(a.id+':'));decl[key]=tg(a.id)+(first?'':'_'+b.w+'x'+b.h);Hd.push(`image ${decl[key]} = Transform("images/${fm[a.id].file}", xysize=(${b.w}, ${b.h}))`)}
+        on.clear();L=[`scene ${decl[key]} at Transform(xpos=0, ypos=0)`,...trl(b)]}
+      else if(b.type==='show'&&a){ds(a);const z=b.z||1,px=f(b.x,1920),py=f(b.y,1080);
+        L=b.glide&&on.has(a.id)?[`show ${tg(a.id)} zorder ${z}:`,`    linear ${b.gdur||1} xpos ${px} ypos ${py} zoom ${b.scale}`]:[`show ${tg(a.id)} at Transform(xpos=${px}, ypos=${py}${b.scale!==1?', zoom='+b.scale:''}) zorder ${z}`,...trl(b)];on.add(a.id)}
+      else if(b.type==='hide'&&a){L=['hide '+tg(a.id)];on.delete(a.id)}
+      else if(b.type==='say'){const c=chars.find(x=>x.id===b.ch);L=[(c?cv(c)+' ':b.who?q(b.who)+' ':'')+q(b.text)]}
+      else if(b.type==='code')L=String(b.code||'').split('\n');
+      else if(b.type==='audio'){L=b.mode==='stop'?['stop music'+(b.fadeout?' fadeout '+b.fadeout:'')]:a?[`play ${b.mode} "audio/${fm[a.id].file}"`+(b.fadein?' fadein '+b.fadein:'')]:[]}
+      else if(b.type==='set')L=[`$ ${vn(b.vr)} ${b.op||'='} ${lit(b.vr,b.val)}`];
+      else if(b.type==='jump')L=[J(b.to)];
+      else if(b.type==='if')L=[`if ${vn(b.vr)} ${b.cmp||'=='} ${lit(b.vr,b.val)}:`,'    '+J(b.then),...(b.els?['else:','    '+J(b.els)]:[])];
+      else if(b.type==='menu'){L=['menu:',...(b.prompt?['    '+q(b.prompt)]:[])];b.opts.forEach(o=>{L.push(`    ${q(o.text)}:`);if(o.vr)L.push(`        $ ${vn(o.vr)} ${o.op||'='} ${lit(o.vr,o.val)}`);L.push('        '+J(o.to))})}
+      else if(b.type==='scare'&&a){ds(a);const sn=A[b.snd];L=[`show ${tg(a.id)} at Transform(xpos=0.5, ypos=0.5, xanchor=0.5, yanchor=0.5, zoom=${b.scale||1}) zorder 99`,...(sn?[`play sound "audio/${fm[sn.id].file}"`]:[]),'with hpunch','pause 0.8','hide '+tg(a.id)]}
+      if(b.chance&&b.chance<100&&L.length)L=[`if renpy.random.randint(1, 100) <= ${b.chance}:`,...L.map(l=>l?'    '+l:l)];
+      L.forEach(l=>Bd.push(l.trim()?'    '+l:''))});
+    Bd.push('    return')});
+  return Hd.concat(Bd,['']).join('\n')}
+
+function Player({brs,assets,vars,chars,ui,start,store,onLoad,onClose}){
+  const [v,setV]=useState({spr:[]}),[pn,setPn]=useState(null),[fl,setFl]=useState({auto:false,skip:false}),flr=useRef({auto:false,skip:false}),[,setTick]=useState(0),ck=useRef(null),pk=useRef(null),api=useRef({});
+  useEffect(()=>{
+    let dead=false;const A=Object.fromEntries(assets.map(a=>[a.id,a])),sleep=ms=>new Promise(r=>setTimeout(r,ms)),au={m:null},S={spr:[],n:0},env={};
+    const push=()=>{if(!dead)setV({...S,spr:[...S.spr]})},click=()=>new Promise(r=>{ck.current=r}),vt=id=>(vars.find(x=>x.id===id)||{}).type;
+    vars.forEach(x=>{env[x.id]=x.type==='num'?+x.init||0:!!x.init});
+    const setv=(id,op,val)=>{if(vt(id)==='num'){const x=+val||0;env[id]=op==='+='?env[id]+x:op==='-='?env[id]-x:x}else env[id]=!!val};
+    const ramp=(a,to,sec,end)=>{const f=a.volume,t0=Date.now(),iv=setInterval(()=>{const p=sec?Math.min(1,(Date.now()-t0)/sec/1000):1;a.volume=f+(to-f)*p;if(p>=1){clearInterval(iv);end&&end()}},50)};
+    const fxd=b=>b.tr==='dissolve'?+b.dur||.5:0;
+    const trn=async(b,apply)=>{const d=+b.dur||.5;
+      if(b.tr==='fade'){S.blk=++S.n;S.bd=d;push();await sleep(d*1000);if(dead)return;apply();push();await sleep(d*1000);S.blk=0}
+      else{apply();push();if(fxd(b)){await sleep(d*1000);S.prev=null}}push()};
+    const say=async(who,text,color)=>{
+      store.hist.push(api.current.snap());store.log.push({who,text:text.replace(/\{w\}/g,''),color});store.atSay=true;
+      let sh='';
+      for(const t of text.split('{w}')){const base=sh;sh+=t;let done=false;const pr=click().then(()=>{done=true});
+        if(!flr.current.skip)for(let n=1;n<=t.length&&!done&&!dead;n++){S.say={who,text:base+t.slice(0,n),color};push();await sleep(25)}
+        S.say={who,text:sh,color};push();if(dead)return;
+        if(flr.current.skip)await Promise.race([pr,sleep(60)]);
+        else if(done)await click();
+        else if(flr.current.auto)await Promise.race([pr,sleep(2200)]);
+        else await pr;
+        if(dead)return}
+      store.atSay=false;S.say=null;push()};
+    try{document.documentElement.requestFullscreen&&document.documentElement.requestFullscreen().catch(()=>{})}catch(e){}
+    let cur=brs[0].id,i=0,pos={cur,i:0},bgB=null,musB=null;
+    if(start){cur=start.cur;i=start.i;Object.assign(env,start.env);bgB=start.bgB;musB=start.musB;
+      if(bgB&&A[bgB.assetId])S.bg={src:A[bgB.assetId].src,w:bgB.w,h:bgB.h,fx:0,n:++S.n};
+      S.spr=(start.spr||[]).filter(e=>A[e.assetId]).map(e=>({...e,a:A[e.assetId],fx:0,n:++S.n,tr0:0}));
+      const mb=musB&&A[musB.assetId];if(mb){const m=new Audio(mb.src);m.loop=true;m.play().catch(()=>{});au.m=m}}
+    api.current.snap=()=>({cur:pos.cur,i:pos.i,env:{...env},bgB,musB,spr:S.spr.map(({a,...r})=>r),t:Date.now(),label:(brs.find(x=>x.id===pos.cur)||{}).name});
+    (async()=>{
+      while(!dead){const bl=(brs.find(x=>x.id===cur)||{blocks:[]}).blocks;if(i>=bl.length)break;const b=bl[i++],a=A[b.assetId];pos={cur,i:i-1};
+        if(b.chance&&b.chance<100&&Math.floor(Math.random()*100)+1>b.chance)continue;
+        if(b.type==='bg'&&a)await trn(b,()=>{bgB=b;S.prev=S.bg;S.bg={src:a.src,w:b.w,h:b.h,fx:fxd(b),n:++S.n};S.spr=[]});
+        else if(b.type==='show'&&a){const ex=S.spr.find(x=>x.assetId===b.assetId),g=b.glide&&ex;
+          await trn(g?{}:b,()=>{S.spr=[...S.spr.filter(x=>x.assetId!==b.assetId),{...b,a,fx:g?0:fxd(b),n:g?ex.n:++S.n,tr0:g?(+b.gdur||1):0}]})}
+        else if(b.type==='hide'){S.spr=S.spr.filter(x=>x.assetId!==b.assetId);push()}
+        else if(b.type==='say'){const c=chars.find(x=>x.id===b.ch);await say(c?c.name:b.who,b.text||'',c&&c.color)}
+        else if(b.type==='audio'){
+          if(b.mode==='stop'){const m=au.m;au.m=null;musB=null;if(m)ramp(m,0,+b.fadeout||0,()=>m.pause())}
+          else if(a){const m=new Audio(a.src);m.volume=b.fadein?0:1;m.play().catch(()=>{});if(b.mode==='music'){if(au.m)au.m.pause();m.loop=true;au.m=m;musB=b}if(b.fadein)ramp(m,1,+b.fadein)}}
+        else if(b.type==='set')setv(b.vr,b.op,b.val);
+        else if(b.type==='jump'){if(brs.some(x=>x.id===b.to)){cur=b.to;i=0}}
+        else if(b.type==='if'){const c=env[b.vr],x=vt(b.vr)==='num'?+b.val||0:!!b.val,ok=({'==':c===x,'!=':c!==x,'>=':c>=x,'<=':c<=x,'>':c>x,'<':c<x})[b.cmp||'=='],t=ok?b.then:b.els;if(t&&brs.some(y=>y.id===t)){cur=t;i=0}}
+        else if(b.type==='menu'){S.say=b.prompt?{who:'',text:b.prompt}:null;S.menu=b.opts.map((o,j)=>({...o,j}));push();const j=await new Promise(r=>{pk.current=r});if(dead)return;S.menu=null;S.say=null;push();
+          const o=b.opts[j];if(o.vr)setv(o.vr,o.op,o.val);if(o.to&&brs.some(y=>y.id===o.to)){cur=o.to;i=0}}
+        else if(b.type==='scare'&&a){const sn=A[b.snd],sc=b.scale||1;S.spr=[...S.spr,{id:'sc',a,x:(1920-a.w*sc)/2,y:(1080-a.h*sc)/2,scale:sc,z:99,n:++S.n}];S.shake=++S.n;push();if(sn)new Audio(sn.src).play().catch(()=>{});await sleep(800);S.spr=S.spr.filter(x=>x.id!=='sc');push()}}
+      if(dead)return;S.say={who:'',text:'— Конец —'};push();await click();if(!dead)onClose()})();
+    return()=>{dead=true;ck.current&&ck.current();pk.current&&pk.current();if(au.m)au.m.pause();try{document.fullscreenElement&&document.exitFullscreen()}catch(e){}};
+  },[]);
+  const pb='px-3 py-1.5 rounded bg-black/70 text-sm text-white border border-white/20',Am=Object.fromEntries(assets.map(a=>[a.id,a])),sty={...ui.say,img:(Am[ui.say.img]||{}).src||''};
+  const flip=k=>{const n={...flr.current,[k]:!flr.current[k]};flr.current=n;setFl(n)};
+  const goBack=()=>{const h=store.hist;if(h.length<2)return;h.pop();const t=h.pop();store.log.length=h.length;onLoad(t,store)};
+  const qm={back:goBack,history:()=>setPn('hist'),save:()=>setPn('save'),auto:()=>flip('auto'),skip:()=>flip('skip')};
+  const rd=n=>{try{return JSON.parse(localStorage.getItem('rpmb:slot:'+n)||'null')}catch(e){return null}};
+  const slot=(n,raw)=>{if(pn==='save'){const sn=api.current.snap&&api.current.snap();if(!sn)return;const cut=a=>(store.atSay?a.slice(0,-1):a).slice(-150);try{localStorage.setItem('rpmb:slot:'+n,JSON.stringify({...sn,hist:cut(store.hist),log:cut(store.log)}))}catch(e){}setTick(t=>t+1)}else if(raw)onLoad(raw,{hist:raw.hist||[],log:raw.log||[]})};
+  return html`<div className="fixed inset-0 z-50 bg-black" onClick=${()=>{const r=ck.current;ck.current=null;r&&r()}}>
+    <${Scene} pad=${false} sty=${sty} qmAct=${qm} qmOn=${fl} bg=${v.bg} prev=${v.prev} spr=${v.spr} say=${v.say} menu=${v.menu} shake=${v.shake} blk=${v.blk} bd=${v.bd} onMenu=${j=>{const r=pk.current;pk.current=null;r&&r(j)}}/>
+    <div className="absolute top-3 right-3 z-10 flex gap-2" onClick=${ev=>ev.stopPropagation()}>${['save','load'].map(t=>html`<button key=${t} className=${pb} onClick=${()=>setPn(pn===t?null:t)}>${t==='save'?'Сохранить':'Загрузить'}</button>`)}<button className=${pb} onClick=${onClose}>✕ Закрыть</button></div>
+    ${pn==='hist'&&html`<div className="absolute inset-0 z-20 bg-black/85 p-4 overflow-y-auto" onClick=${ev=>ev.stopPropagation()}><div className="max-w-2xl mx-auto"><div className="flex justify-between mb-3 text-white"><span className="text-lg">История</span><button className=${pb} onClick=${()=>setPn(null)}>Закрыть</button></div>${store.log.length?store.log.map((l,i)=>html`<div key=${i} className="mb-3"><div className="text-sm font-bold" style=${{color:l.color||'#c4b5fd'}}>${l.who||''}</div><div className="text-sm text-zinc-200">${l.text}</div></div>`):html`<div className="text-zinc-400 text-sm">Пока пусто</div>`}</div></div>`}
+    ${(pn==='save'||pn==='load')&&html`<div className="absolute inset-0 z-20 bg-black/80 flex items-center justify-center p-4" onClick=${ev=>ev.stopPropagation()}><div className="w-full max-w-xl"><div className="text-lg mb-3 text-white">${pn==='save'?'Сохранить':'Загрузить'} — выберите слот</div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">${[1,2,3,4,5,6].map(n=>{const raw=rd(n);return html`<button key=${n} className="h-24 rounded bg-white/10 hover:bg-white/20 text-sm text-white p-2 text-left" onClick=${()=>slot(n,raw)}>Слот ${n}<div className="text-xs text-zinc-400">${raw?(raw.label||'')+' · '+new Date(raw.t).toLocaleString():'пусто'}</div></button>`})}</div>
+      <button className=${pb+' mt-3'} onClick=${()=>setPn(null)}>Назад</button></div></div>`}</div>`;
+}
+
+function genFiles(brs,assets,vars,frac,chars,ui,proj){
+  const fm=fileMap(assets),A=Object.fromEntries(assets.map(a=>[a.id,a])),m=ui.menu,p=ui.prefs,d={...DEF_SAY,...ui.say},t3=n=>(+n).toFixed(3);
+  const nm=proj.name||'Мой мод',sg=slug(nm)==='file'?'mod':slug(nm),ft=A[ui.font],mb=A[m.bg],mu=A[m.music],R=Math.max(1,Math.round(d.radius));
+  const ind=(t,n)=>String(t||'').split('\n').filter(l=>l.trim()).map(l=>' '.repeat(n)+l);
+  const bx=(1920-d.w)*d.x,by=(1080-d.h)*d.y,qy=Math.round(by>=70?by-60:by+d.h+10),nbg=A[d.img]?`Solid("${h8(d.color,d.op)}")`:`Frame("gui/textbox.png", ${R}, ${R})`;
+  const row=(t,v)=>['        hbox:','            spacing 30',`            text _(${Q(t)}) xsize 360`,`            bar value ${v} xsize 600 ysize 28 left_bar Solid("${hx(p.slider)}") right_bar Solid("#333333")`];
+  const qmi=d.qmOff?[]:[['back','Назад','Rollback()'],['history','История',"ShowMenu('history')"],['skip','Пропуск','Skip() alternate Skip(fast=True, confirm=True)'],['auto','Авто','Preference("auto-forward", "toggle")'],['save','Сохранить',"ShowMenu('save')"]].filter(x=>d.qm[x[0]]);
+  const tb=(t,a)=>`textbutton _(${Q(t)}) action ${a} text_style "mb_text"`;
+  const S=["# screens.rpy — создано в Ren'Py Mod Builder",'','default quick_menu = True','init python:','    config.overlay_screens.append("quick_menu")','',
+   'style mb_text is default:',`    idle_color "${hx(p.btn)}"`,`    hover_color "${hx(p.hover)}"`,'    size 36','',
+   'screen say(who, what):','    window:','        id "window"',`        xalign ${t3(d.x)} yalign ${t3(d.y)}`,`        xsize ${d.w} ysize ${d.h}`,
+   `        background ${A[d.img]?`Frame("images/${fm[d.img].file}", 0, 0)`:`Frame("gui/textbox.png", ${R}, ${R})`}`,`        padding (${d.pad}, ${d.pad})`,`        text what id "what" size ${d.size}`,'    if who is not None:','        window:','            xfill False yfill False xminimum 0 yminimum 0',`            xpos ${Math.round(bx+d.pad)} ypos ${Math.round(by)} yanchor 1.0 yoffset -6`,`            background ${nbg}`,'            padding (28, 6)',`            text who id "who" size ${Math.round(d.size*1.05)} bold True`,...ind(d.custom,4),'',
+   'screen quick_menu():','    zorder 100',...(qmi.length?['    if quick_menu:','        hbox:',`            xpos ${Math.round(bx+d.w)} xanchor 1.0 ypos ${qy}`,'            spacing 36',...qmi.map(x=>`            textbutton _(${Q(x[1])}) action ${x[2]} text_style "mb_text" text_size 28`)]:[]),'',
+   ...(!d.qmOff&&d.qm.history?['screen history():','    tag menu','    use mb_nav(_("История"))','    viewport:','        xalign 0.5 yalign 0.6 xsize 1500 ysize 760','        mousewheel True','        scrollbars "vertical"','        vbox:','            spacing 24','            for h in _history_list:','                text ((h.who or "") + ": " + h.what) size 34','']:[]),
+   'screen mb_nav(title):',`    add Solid("${hx(p.bg)}")`,'    text title xalign 0.5 ypos 40 size 56','    hbox:','        xalign 0.5 ypos 130 spacing 50',
+   ...[['Сохранить','ShowMenu("save")'],['Загрузить','ShowMenu("load")'],['Настройки','ShowMenu("preferences")'],['В главное меню','MainMenu()'],['Назад','Return()']].map(x=>'        '+tb(x[0],x[1])),'',
+   'screen main_menu():','    tag menu',mb?`    add Transform("images/${fm[mb.id].file}", xysize=(1920, 1080))`:'    add Solid("#000000")',
+   ...m.btns.flatMap(b=>[`    textbutton _(${Q(b.label)}):`,`        action ${({start:'Start()',load:'ShowMenu("load")',prefs:'ShowMenu("preferences")',quit:'Quit(confirm=False)'})[b.id]}`,`        xpos ${t3(b.x)} ypos ${t3(b.y)}`,`        xsize ${b.w} ysize ${b.h}`,`        background Solid("${h8(b.bg,b.op)}")`,`        text_size ${b.size}`,`        text_idle_color "${hx(b.color)}"`,`        text_hover_color "${hx(b.hover)}"`,'        text_xalign 0.5','        text_yalign 0.5']),'',
+   'screen preferences():','    tag menu','    use mb_nav(_("Настройки"))','    vbox:','        xalign 0.5 yalign 0.6 spacing 36',
+   ...(p.fs?['        hbox:','            spacing 60','            '+tb('Окно','Preference("display", "window")'),'            '+tb('Полный экран','Preference("display", "fullscreen")')]:[]),
+   ...(p.music?row('Музыка','Preference("music volume")'):[]),...(p.sfx?row('Звуки','Preference("sound volume")'):[]),
+   ...(p.master?row('Общая громкость','Preference("mixer main volume")'):[]),
+   ...(p.speed?row('Скорость текста','Preference("text speed")'):[]),...(p.auto?row('Авто-перемотка','Preference("auto-forward time")'):[]),
+   ...(p.skipU?['        '+tb('Пропускать непрочитанное','Preference("skip", "toggle")')]:[]),...(p.skipC?['        '+tb('Пропуск после выборов','Preference("after choices", "toggle")')]:[]),'',
+   'screen save():','    tag menu','    use file_slots(_("Сохранить"))','','screen load():','    tag menu','    use file_slots(_("Загрузить"))','',
+   'screen file_slots(title):','    use mb_nav(title)','    grid 3 2:','        xalign 0.5 yalign 0.62 spacing 30','        for i in range(1, 7):','            $ slot = i','            button:','                xsize 480 ysize 330','                action FileAction(slot)','                key "save_delete" action FileDelete(slot)',
+   '                vbox:','                    spacing 8','                    add FileScreenshot(slot) xalign 0.5','                    text FileTime(slot, format=_("%d.%m.%Y %H:%M"), empty=_("Пустой слот")) xalign 0.5 size 28','',
+   'screen choice(items):','    vbox:','        xalign 0.5 yalign 0.5 spacing 24','        for i in items:','            textbutton i.caption action i.action text_style "mb_text"','',
+   'screen confirm(message, yes_action, no_action):','    modal True','    zorder 200','    add Solid("#000000b0")','    frame:','        xalign 0.5 yalign 0.5 padding (60, 40)','        vbox:','            spacing 30','            text message xalign 0.5 size 36','            hbox:','                xalign 0.5 spacing 80','                '+tb('Да','yes_action'),'                '+tb('Нет','no_action'),'',
+   'screen notify(message):','    zorder 100','    text message xalign 0.5 yalign 0.05 size 32','    timer 3.25 action Hide("notify")','',
+   'screen skip_indicator():','    zorder 100','    text _("Пропуск") xpos 30 ypos 30 size 30',''];
+  const hash=Math.abs([...nm].reduce((h,c)=>(h*31+c.charCodeAt(0))|0,7));
+  return{'script.rpy':gen(brs,assets,vars,frac,chars),'screens.rpy':S.join('\n'),
+    'gui.rpy':["# gui.rpy — создано в Ren'Py Mod Builder",'init offset = -2','init python:','    gui.init(1920, 1080)',`define gui.text_font = ${ft?Q('gui/'+fm[ft.id].file):'"DejaVuSans.ttf"'}`,'define gui.text_size = 36','','style default:','    font gui.text_font','    size gui.text_size',''].join('\n'),
+    'options.rpy':["# options.rpy — создано в Ren'Py Mod Builder",`define config.name = _(${Q(nm)})`,'define gui.show_name = True','define config.version = "1.0"',`define build.name = "${sg}"`,`define config.save_directory = "${sg}-${hash}"`,'define config.has_sound = True','define config.has_music = True','default preferences.text_cps = 40','default preferences.afm_time = 15','define config.history_list_length = 250',...(proj.icon?['define config.window_icon = "gui/window_icon.png"']:[]),...(mu?[`define config.main_menu_music = "audio/${fm[mu.id].file}"`]:[]),''].join('\n')}
+}
+
+async function zipMod(brs,assets,vars,frac,chars,ui,proj,say){
+  try{const Z=new JSZip(),fm=fileMap(assets),F=genFiles(brs,assets,vars,frac,chars,ui,proj),d={...DEF_SAY,...ui.say};
+    Object.entries(F).forEach(([n,t])=>Z.file('game/'+n,t));
+    assets.forEach(a=>Z.file(`game/${fm[a.id].dir}/${fm[a.id].file}`,a.src.split(',')[1],{base64:true}));
+    if(proj.icon)Z.file('game/gui/window_icon.png',proj.icon.split(',')[1],{base64:true});
+    if(!assets.some(a=>a.id===d.img)){const R=Math.max(1,Math.round(d.radius)),n=2*R+4,c=document.createElement('canvas');c.width=c.height=n;const x=c.getContext('2d');x.fillStyle=rgba(d.color,d.op);x.beginPath();x.roundRect?x.roundRect(0,0,n,n,R):x.rect(0,0,n,n);x.fill();Z.file('game/gui/textbox.png',c.toDataURL('image/png').split(',')[1],{base64:true})}
+    say(await dl((slug(proj.name||'')==='file'?'mod':slug(proj.name))+'.zip',await Z.generateAsync({type:'uint8array'})))}
+  catch(e){say('Ошибка архива: '+(e&&e.message||e))}}
+
+async function dl(name,data){
+  try{const d=window.claude&&await claude.use('downloads');if(d){await d.save({filename:name,data});return 'Сохранено: '+name}}catch(e){}
+  const u=URL.createObjectURL(data instanceof Blob?data:new Blob([data])),a=document.createElement('a');a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),5000);return 'Скачано: '+name}
+async function saveFile(name,data,say){try{say(await dl(name,data))}catch(e){say('Не удалось скачать: '+(e&&e.message||e))}}
+
+function App(){
+  const [assets,setAssets]=useState([]),[branches,setBranches]=useState([{id:'main',name:'Начало',blocks:[]}]),[br,setBr]=useState('main'),[vars,setVars]=useState([]),[play,setPlay]=useState(false),[sel,setSel]=useState(null),[pv,setPv]=useState(null);
+  const blocks=(branches.find(b=>b.id===br)||branches[0]).blocks,taRef=useRef(null);
+  const [ui,setUi]=useState(UI0),[chars,setChars]=useState([]),[proj,setProj]=useState({name:'Мой мод',icon:''}),[view,setView]=useState('story'),[mb,setMb]=useState('start'),[fsel,setFsel]=useState('script.rpy');
+  const setBlocks=fn=>setBranches(bs=>bs.map(b=>b.id===br?{...b,blocks:fn(b.blocks)}:b));
+  const [clamp,setClamp]=useState(false),[tab,setTab]=useState('b'),[rt,setRt]=useState('p'),[frac,setFrac]=useState(true);
+  const [presets,setPresets]=useState([]),[pname,setPname]=useState(''),[msg,setMsgR]=useState(''),[goto,setGoto]=useState(null),[hl,setHl]=useState('');
+  const setMsg=t=>{setMsgR(t);setGoto(null)},hint=(t,g)=>{setMsgR(t);setGoto(g)};
+  useEffect(()=>{if(!msg)return;const t=setTimeout(()=>{setMsgR('');setGoto(null)},goto?9000:3500);return()=>clearTimeout(t)},[msg,goto]);
+  const gotoSec=g=>{setMsgR('');setGoto(null);setTab('a');setHl(g);setTimeout(()=>{const el=document.getElementById('sec-'+g);if(el)el.scrollIntoView({behavior:'smooth',block:'center'})},80);setTimeout(()=>setHl(''),2600)};
+  const selRef=useRef(null);selRef.current=sel;
+  const A=Object.fromEntries(assets.map(a=>[a.id,a]));
+  useEffect(()=>{const a=A[ui.font];if(a)try{new FontFace('PF','url('+a.src+')').load().then(f=>document.fonts.add(f)).catch(()=>{})}catch(e){}},[ui.font]);
+  const upU=(k,p)=>setUi(u=>({...u,[k]:{...u[k],...p}})),upBtn=(id,p)=>setUi(u=>({...u,menu:{...u.menu,btns:u.menu.btns.map(b=>b.id===id?{...b,...p}:b)}}));
+  const upd=(id,p)=>setBlocks(bs=>bs.map(b=>b.id===id?{...b,...p}:b));
+  const addBlocks=arr=>{const nb=arr.map(b=>({...b,id:uid(),chk:false}));if(!nb.length)return;
+    setBlocks(bs=>{const i=bs.findIndex(x=>x.id===selRef.current);const n=i<0?bs.length:i+1;return[...bs.slice(0,n),...nb,...bs.slice(n)]});
+    setSel(nb[nb.length-1].id);setPv(nb[nb.length-1].id)};
+  const blockFor=a=>{if(a.kind==='audio')return{type:'audio',mode:'music',assetId:a.id,fadein:0,fadeout:0};
+    if(a.kind==='bg')return{type:'bg',assetId:a.id,w:1920,h:1080,keep:true,tr:'none',dur:.5};
+    const sc=a.h>900?+(900/a.h).toFixed(2):1;return{type:'show',assetId:a.id,scale:sc,x:Math.round((1920-a.w*sc)/2),y:Math.round(1080-a.h*sc),z:1+Math.max(0,...Object.values(spr).map(b=>b.z||1)),tr:'none',dur:.5}};
+  const place=(a,kind)=>kind==='font'?setUi(u=>({...u,font:a.id})):view==='menu'&&kind!=='sprite'?upU('menu',kind==='audio'?{music:a.id}:{bg:a.id}):view==='say'&&kind!=='audio'?upU('say',{img:a.id}):addBlocks([blockFor(a)]);
+  const readFiles=(files,kind)=>[...files].forEach(f=>{const r=new FileReader();r.onload=()=>{const src=r.result,add=(w,h)=>{const a={id:uid(),kind,name:f.name,src,w,h};setAssets(x=>[...x,a]);place(a,kind)};
+    if(kind==='audio'||kind==='font')add(0,0);else{const im=new Image();im.onload=()=>add(im.naturalWidth,im.naturalHeight);im.src=src}};r.readAsDataURL(f)});
+  const idx0=pv?blocks.findIndex(b=>b.id===pv):blocks.length-1,idx=idx0<0?blocks.length-1:idx0;
+  const {bg,spr,say,menu}=calc(blocks,idx);
+  const s=blocks.find(b=>b.id===sel);
+  const nb=n=>{const id=uid();setBranches(bs=>[...bs,{id,name:n||'Ветка '+(bs.length+1),blocks:[]}]);return id};
+  const layer=(id,dir)=>{const l=Object.values(spr).sort((a,b)=>(a.z||1)-(b.z||1)),me=l.find(b=>b.assetId===id),o=l.filter(b=>b!==me),m={};(dir>0?[...o,me]:[me,...o]).forEach((b,i)=>{m[b.id]=i+1});setBlocks(bs=>bs.map(b=>m[b.id]?{...b,z:m[b.id]}:b))};
+  const addNew=t=>{const v0=vars[0],dv=v0&&v0.type==='num'?0:true;
+    if(t==='menu'){const a=nb('Вариант 1'),b=nb('Вариант 2');addBlocks([{type:'menu',prompt:'',opts:[{text:'Вариант 1',to:a},{text:'Вариант 2',to:b}]}])}
+    else if(t==='if'||t==='set'){let v1=v0;if(!v1){v1={id:uid(),name:'переменная_1',type:'flag',init:false};setVars([v1]);hint('Создана переменная «переменная_1» — нажмите, чтобы переименовать','vars')}
+      const dv1=v1.type==='num'?0:true;if(t==='set')addBlocks([{type:'set',vr:v1.id,op:'=',val:dv1}]);else{const a=nb('Если да'),b=nb('Иначе');addBlocks([{type:'if',vr:v1.id,cmp:'==',val:dv1,then:a,els:b}])}}
+    else if(t==='jump')addBlocks([{type:'jump',to:branches[0].id}]);
+    else if(t==='audio'){const a=assets.find(x=>x.kind==='audio');addBlocks([{type:'audio',mode:'music',assetId:a&&a.id,fadein:0,fadeout:0}])}
+    else{const a=assets.find(x=>x.kind==='sprite');if(!a)return hint('Сначала загрузите спрайт — нажмите, чтобы перейти к загрузке','assets');addBlocks([{type:'scare',assetId:a.id,scale:1,snd:(assets.find(x=>x.kind==='audio')||{}).id,chance:100}])}
+    setTab('c');setRt('p')};
+  const insW=()=>{const t=taRef.current,p=t?t.selectionStart:s.text.length;upd(s.id,{text:s.text.slice(0,p)+'{w}'+s.text.slice(p)});setTimeout(()=>{if(t){t.focus();t.setSelectionRange(p+3,p+3)}},0)};
+  const addSay=()=>{const l=blocks.filter(x=>x.type==='say').pop();addBlocks([{type:'say',who:l?l.who:'',text:''}]);setTab('c');setRt('p')};
+  useEffect(()=>{const f=e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){e.preventDefault();addSay()}};addEventListener('keydown',f);return()=>removeEventListener('keydown',f)});
+  const pick=id=>{setSel(id);setRt('p')};
+  const go=id=>{setSel(id);setPv(id);setRt('p')};
+  const move=(id,d)=>setBlocks(bs=>{const i=bs.findIndex(x=>x.id===id),j=i+d;if(j<0||j>=bs.length)return bs;const n=[...bs];[n[i],n[j]]=[n[j],n[i]];return n});
+  const del=id=>{setBlocks(bs=>bs.filter(x=>x.id!==id));if(sel===id)setSel(null);if(pv===id)setPv(null)};
+  const vnm=id=>(vars.find(x=>x.id===id)||{}).name||'?',bnm=id=>(branches.find(b=>b.id===id)||{}).name||'—';
+  const lab=b=>{const n=(A[b.assetId]||{}).name||'—';return b.type==='bg'?`Фон · ${n} ${b.w}×${b.h}`:b.type==='show'?`Спрайт · ${n}`:b.type==='hide'?`Убрать · ${n}`:b.type==='say'?`${b.who||'Автор'}: ${b.text||'…'}`:({menu:'Выбор ('+(b.opts||[]).length+')',set:'Переменная · '+vnm(b.vr)+' '+(b.op||'='),if:'Если '+vnm(b.vr)+' '+(b.cmp||'=='),jump:'Переход → '+bnm(b.to),audio:'Аудио · '+(b.mode==='stop'?'стоп музыки':n),scare:'Скример · '+n,code:"Код Ren'Py"})[b.type]||b.type};
+
+  const files=genFiles(branches,assets,vars,frac,chars,ui,proj),code=files[fsel]||files['script.rpy'];
+
+  /* ---------- presets ---------- */
+  const savePreset=()=>{const bl=blocks.some(b=>b.chk)?blocks.filter(b=>b.chk):blocks;if(!bl.length)return setMsg('Нет блоков для пресета');
+    const ids=new Set(bl.map(b=>b.assetId).filter(Boolean));
+    setPresets(p=>[...p,{id:uid(),name:pname||'Пресет '+(p.length+1),blocks:bl.map(({id,chk,...r})=>r),assets:assets.filter(a=>ids.has(a.id))}]);setPname('');setMsg('Пресет сохранён')};
+  const loadPreset=p=>{setAssets(as=>[...as,...p.assets.filter(a=>!as.some(x=>x.id===a.id))]);addBlocks(p.blocks)};
+  const importJson=f=>{const r=new FileReader();r.onload=()=>{try{const j=JSON.parse(r.result);setPresets(p=>[...p,...(j.presets||[]).map(x=>({...x,id:uid()}))]);setMsg('Импортировано')}catch(e){setMsg('Не удалось прочитать .json')}};r.readAsText(f)};
+
+  /* ---------- UI pieces (plain functions, not components) ---------- */
+  const assetSel=(kind,b)=>html`<${F} t=${kind==='bg'?'Фон':'Спрайт'}><select className=${inp} value=${b.assetId} onChange=${e=>upd(b.id,{assetId:e.target.value})}>${assets.filter(a=>a.kind===kind).map(a=>html`<option key=${a.id} value=${a.id}>${a.name}</option>`)}</select><//>`;
+  const num=(t,v,on,step=1)=>html`<${F} t=${t}><input type="number" step=${step} className=${inp} value=${v} onChange=${e=>on(+e.target.value||0)}/><//>`;
+  const props0=()=>{
+    if(!s)return html`<p className="text-sm text-zinc-500">Выберите блок на ленте или добавьте новый слева.</p>`;
+    if(s.type==='bg')return html`<div>${assetSel('bg',s)}
+      <div className="grid grid-cols-2 gap-2">${num('Ширина (W)',s.w,w=>upd(s.id,s.keep?{w,h:Math.round(w*9/16)}:{w}))}${num('Высота (H)',s.h,h=>upd(s.id,s.keep?{h,w:Math.round(h*16/9)}:{h}))}</div>
+      <${Chk} v=${s.keep} t="Сохранять пропорции 16:9" on=${v=>upd(s.id,v?{keep:v,h:Math.round(s.w*9/16)}:{keep:v})}/>
+      <p className="text-xs text-zinc-500">Без галочки фон можно растянуть как угодно (например 900×900). В коде — Transform(xysize=…).</p></div>`;
+    if(s.type==='show')return html`<div>${assetSel('sprite',s)}
+      <div className="grid grid-cols-2 gap-2">${num('X (px)',s.x,x=>upd(s.id,{x}))}${num('Y (px)',s.y,y=>upd(s.id,{y}))}</div>
+      <${F} t=${'Масштаб: '+s.scale}><input type="range" min="0.1" max="3" step="0.01" value=${s.scale} className="w-full accent-violet-500" onChange=${e=>upd(s.id,{scale:+e.target.value})}/><//>
+      <p className="text-xs text-zinc-500">Тяните спрайт мышкой прямо на сцене — хоть за край кадра.</p></div>`;
+    if(s.type==='hide')return html`<div>${assetSel('sprite',s)}</div>`;
+    if(s.type==='say')return html`<div key=${s.id}>
+      <${F} t="Имя персонажа (пусто — слова автора)"><input className=${inp} value=${s.who} onChange=${e=>upd(s.id,{who:e.target.value})}/><//>
+      <${F} t="Текст реплики"><textarea ref=${taRef} autoFocus=${true} rows="5" className=${inp} value=${s.text} onChange=${e=>upd(s.id,{text:e.target.value})}></textarea><//></div>`;
+    return html`<${F} t="Свой код Ren'Py (без отступа метки)"><textarea rows="12" className=${inp+' font-mono'} placeholder=${'if persistent.met:\n    "Мы уже знакомы."'} value=${s.code||''} onChange=${e=>upd(s.id,{code:e.target.value})}></textarea><//>`};
+  const Up=(kind,label,ic)=>html`<label className=${btn+' cursor-pointer'}><${I} n=${ic}/>${label}<input type="file" accept=${kind==='audio'?'.mp3,.ogg,.wav,audio/*':kind==='font'?'.ttf,.otf':'image/*'} multiple hidden onChange=${e=>{readFiles(e.target.files,kind);e.target.value=''}}/></label>`;
+  const so=(v,on,o)=>html`<select className=${inp} value=${v} onChange=${e=>on(e.target.value)}>${o.map(([x,t])=>html`<option key=${x} value=${x}>${t}</option>`)}</select>`;
+  const bro=[['','— продолжить дальше —'],...branches.map(b=>[b.id,b.name])];
+  const vsel=(v,on)=>so(v||'',x=>{if(x==='__new'){const id=uid();setVars(a=>[...a,{id,name:'переменная_'+(vars.length+1),type:'flag',init:false}]);on(id)}else on(x)},[['','— переменная —'],...vars.map(x=>[x.id,x.name||'?']),['__new','＋ создать новую переменную']]);
+  const isNum=id=>(vars.find(x=>x.id===id)||{}).type==='num';
+  const vval=(vr,val,on)=>isNum(vr)?html`<input type="number" className=${inp} value=${+val||0} onChange=${e=>on(+e.target.value||0)}/>`:so(val?'1':'0',x=>on(x==='1'),[['1','Да'],['0','Нет']]);
+  const vop=(vr,op,on)=>isNum(vr)?so(op||'=',on,[['=','='],['+=','+='],['-=','−=']]):null;
+  const pickVar=(o,id)=>({vr:id,op:'=',val:isNum(id)?0:true});
+  const uv=(id,p)=>setVars(x=>x.map(y=>y.id===id?{...y,...p}:y));
+  const trUI=b=>html`<div className="grid grid-cols-2 gap-2"><${F} t="Переход">${so(b.tr||'none',v=>upd(b.id,{tr:v}),[['none','Мгновенно'],['dissolve','Растворение'],['fade','Через чёрный']])}<//>${b.tr&&b.tr!=='none'?num('Секунд',b.dur||.5,v=>upd(b.id,{dur:v}),.1):''}</div>`;
+  const newProps=()=>{
+    if(s.type==='set')return html`<div><${F} t="Переменная">${vsel(s.vr,id=>upd(s.id,pickVar(s,id)))}<//><div className="grid grid-cols-2 gap-2"><${F} t="Действие">${vop(s.vr,s.op,v=>upd(s.id,{op:v}))||html`<div className="text-sm py-1">=</div>`}<//><${F} t="Значение">${vval(s.vr,s.val,v=>upd(s.id,{val:v}))}<//></div></div>`;
+    if(s.type==='if')return html`<div><${F} t="Если">${vsel(s.vr,id=>upd(s.id,{...pickVar(s,id),cmp:'=='}))}<//><div className="grid grid-cols-2 gap-2"><${F} t="Условие">${so(s.cmp||'==',v=>upd(s.id,{cmp:v}),(isNum(s.vr)?['==','!=','>=','<=','>','<']:['==','!=']).map(x=>[x,x]))}<//><${F} t="Значение">${vval(s.vr,s.val,v=>upd(s.id,{val:v}))}<//></div>
+      <${F} t="То — перейти на ветку">${so(s.then||'',v=>upd(s.id,{then:v}),bro)}<//><${F} t="Иначе (Else) — ветка">${so(s.els||'',v=>upd(s.id,{els:v}),bro)}<//></div>`;
+    if(s.type==='jump')return html`<${F} t="Перейти на ветку (jump)">${so(s.to||'',v=>upd(s.id,{to:v}),bro.slice(1))}<//>`;
+    if(s.type==='audio')return html`<div><${F} t="Канал">${so(s.mode,v=>upd(s.id,{mode:v}),[['music','music — фоновая музыка'],['sound','sound — разовый звук'],['stop','stop music']])}<//>
+      ${s.mode!=='stop'&&html`<${F} t="Файл">${so(s.assetId||'',v=>upd(s.id,{assetId:v}),[['','—'],...assets.filter(a=>a.kind==='audio').map(a=>[a.id,a.name])])}<//>${num('Fade-in, сек',s.fadein||0,v=>upd(s.id,{fadein:v}),.1)}`}
+      ${s.mode==='stop'&&num('Fade-out, сек',s.fadeout||0,v=>upd(s.id,{fadeout:v}),.1)}</div>`;
+    if(s.type==='scare')return html`<div><${F} t="Спрайт-скример">${so(s.assetId||'',v=>upd(s.id,{assetId:v}),assets.filter(a=>a.kind==='sprite').map(a=>[a.id,a.name]))}<//><${F} t="Звук">${so(s.snd||'',v=>upd(s.id,{snd:v}),[['','без звука'],...assets.filter(a=>a.kind==='audio').map(a=>[a.id,a.name])])}<//>${num('Масштаб',s.scale||1,v=>upd(s.id,{scale:v}),.1)}<p className="text-xs text-zinc-500">Резкое появление в центре + звук + hpunch.</p></div>`;
+    return html`<div><${F} t="Вопрос (необязательно)"><input className=${inp} value=${s.prompt||''} onChange=${e=>upd(s.id,{prompt:e.target.value})}/><//>
+      ${s.opts.map((o,j)=>html`<div key=${j} className="bg-white/5 rounded p-2 mb-2 space-y-1"><input className=${inp} value=${o.text} onChange=${e=>upd(s.id,{opts:s.opts.map((x,y)=>y===j?{...x,text:e.target.value}:x)})}/>
+        ${so(o.to||'',v=>upd(s.id,{opts:s.opts.map((x,y)=>y===j?{...x,to:v}:x)}),bro)}
+        ${vsel(o.vr,id=>upd(s.id,{opts:s.opts.map((x,y)=>y===j?(id?{...x,...pickVar(x,id)}:{...x,vr:''}):x)}))}
+        ${o.vr&&html`<div className="grid grid-cols-2 gap-1">${vop(o.vr,o.op,v=>upd(s.id,{opts:s.opts.map((x,y)=>y===j?{...x,op:v}:x)}))||html`<div className="text-sm py-1">=</div>`}${vval(o.vr,o.val,v=>upd(s.id,{opts:s.opts.map((x,y)=>y===j?{...x,val:v}:x)}))}</div>`}
+        ${s.opts.length>2&&html`<button className="text-xs text-red-300" onClick=${()=>upd(s.id,{opts:s.opts.filter((x,y)=>y!==j)})}>Убрать вариант</button>`}</div>`)}
+      ${s.opts.length<4&&html`<button className=${btn} onClick=${()=>{const n=s.opts.length+1,id=nb('Вариант '+n);upd(s.id,{opts:[...s.opts,{text:'Вариант '+n,to:id}]})}}><${I} n="Plus"/>Вариант</button>`}</div>`};
+  const ext=()=>{if(s.type==='bg')return trUI(s);
+    if(s.type==='show'){const i=blocks.indexOf(s),can=i>0&&calc(blocks,i-1).spr[s.assetId];
+      return html`<div>${trUI(s)}${can?html`<${Chk} v=${!!s.glide} on=${v=>upd(s.id,{glide:v})} t="Плавно передвинуть (linear)"/>`:null}${can&&s.glide?num('Длительность движения, сек',s.gdur||1,v=>upd(s.id,{gdur:v}),.1):null}</div>`}
+    if(s.type==='say'){const c=chars.find(x=>x.id===s.ch);return html`<div>${chars.length?html`<${F} t="Персонаж (цвет имени из менеджера)">${so(s.ch||'',v=>{const x=chars.find(y=>y.id===v);upd(s.id,x?{ch:v,who:x.name}:{ch:''})},[['','— вручную —'],...chars.map(x=>[x.id,x.name||'?'])])}<//>`:null}
+      ${c&&c.sprites.length?html`<div className="flex flex-wrap gap-1 mb-3">${c.sprites.filter(id=>A[id]).map(id=>html`<button key=${id} className=${btn} onClick=${()=>addBlocks([blockFor(A[id])])}><${I} n="User"/>${A[id].name}</button>`)}</div>`:null}
+      <button className=${btn+' mb-3'} onClick=${insW}><${I} n="Pause"/>+ Пауза {w}</button></div>`}
+    return null};
+  const props=()=>!s?props0():html`<div>${['menu','set','if','jump','audio','scare'].includes(s.type)?newProps():props0()}${ext()}${s.type==='if'?null:html`<div className="mt-2 pt-3 border-t border-white/10">${num('Шанс срабатывания, % (1–100)',s.chance||100,v=>upd(s.id,{chance:cl(Math.round(v),1,100)}))}</div>`}</div>`;
+  const more=html`<div className="grid grid-cols-2 gap-2 mt-2">${[['menu','Выбор','GitBranch'],['if','Условие','Split'],['set','Задать переменную','Variable'],['jump','Переход','CornerDownRight'],['audio','Музыка/звук','Music'],['scare','Скример','Zap']].map(([t,l,ic])=>html`<button key=${t} className=${btn} onClick=${()=>addNew(t)}><${I} n=${ic}/>${l}</button>`)}</div>`;
+  const varsUI=html`<div id="sec-vars" className=${hl==='vars'?'ring-2 ring-violet-500 rounded p-1':''}><${H} t="Переменные (память сюжета)"/>${vars.map(x=>html`<div key=${x.id} className="bg-white/5 rounded p-1.5 mb-1 space-y-1"><input className=${inp} placeholder="напр. выбрал_лес" value=${x.name} onChange=${e=>uv(x.id,{name:e.target.value})}/>
+    <div className="flex gap-1">${so(x.type,t=>uv(x.id,{type:t,init:t==='num'?0:false}),[['flag','Флаг'],['num','Счётчик']])}${vval(x.id,x.init,v=>uv(x.id,{init:v}))}<button className="p-1.5 hover:bg-white/10 rounded" onClick=${()=>setVars(y=>y.filter(z=>z.id!==x.id))}><${I} n="Trash2"/></button></div></div>`)}
+    <button className=${btn} onClick=${()=>setVars(x=>[...x,{id:uid(),name:'',type:'flag',init:false}])}><${I} n="Plus"/>Переменная</button></div>`;
+  const mn=ui.menu,pf=ui.prefs,sty={...ui.say,img:(A[ui.say.img]||{}).src||''};
+  const uc=(id,p)=>setChars(x=>x.map(y=>y.id===id?{...y,...p}:y));
+  const loadIcon=f=>{const r=new FileReader();r.onload=()=>{const im=new Image();im.onload=()=>{const c=document.createElement('canvas');c.width=c.height=256;c.getContext('2d').drawImage(im,0,0,256,256);setProj(x=>({...x,icon:c.toDataURL('image/png')}))};im.src=r.result};r.readAsDataURL(f)};
+  const rng=(t,v,on,a,b,st)=>html`<${F} t=${t+': '+(+v).toFixed(2)}><input type="range" min=${a} max=${b} step=${st} value=${v} className="w-full accent-violet-500" onChange=${e=>on(+e.target.value)}/><//>`;
+  const hexF=(t,v,on)=>html`<${F} t=${t}><${HexIn} v=${v} on=${on}/><//>`;
+  const imgs=[['','— нет —'],...assets.filter(a=>a.kind==='bg'||a.kind==='sprite').map(a=>[a.id,a.name])];
+  const charsUI=html`<div><${H} t="Персонажи"/>${chars.map(c=>html`<div key=${c.id} className="bg-white/5 rounded p-1.5 mb-1 space-y-1"><div className="flex gap-1"><input className=${inp} placeholder="Имя персонажа" value=${c.name} onChange=${e=>uc(c.id,{name:e.target.value})}/><button className="p-1.5 hover:bg-white/10 rounded" onClick=${()=>setChars(y=>y.filter(z=>z.id!==c.id))}><${I} n="Trash2"/></button></div>
+    <${HexIn} v=${c.color} on=${v=>uc(c.id,{color:v})}/>
+    <div className="flex flex-wrap gap-1">${assets.filter(a=>a.kind==='sprite').map(a=>html`<button key=${a.id} title=${a.name} onClick=${()=>uc(c.id,{sprites:c.sprites.includes(a.id)?c.sprites.filter(z=>z!==a.id):[...c.sprites,a.id]})} className=${'rounded p-0.5 border '+(c.sprites.includes(a.id)?'border-violet-500':'border-transparent')}><img src=${a.src} className="w-8 h-8 object-contain bg-black/40 rounded"/></button>`)}</div></div>`)}
+    <button className=${btn} onClick=${()=>setChars(x=>[...x,{id:uid(),name:'',color:'#FF4D4D',sprites:[]}])}><${I} n="Plus"/>Персонаж</button></div>`;
+  const projUI=html`<div className="mb-3"><${F} t="Файл">${so(fsel,setFsel,['script.rpy','screens.rpy','options.rpy','gui.rpy'].map(x=>[x,x]))}<//>
+    <${F} t="Название игры / мода"><input className=${inp} value=${proj.name} onChange=${e=>setProj(x=>({...x,name:e.target.value}))}/><//>
+    <label className=${btn+' cursor-pointer'}><${I} n="Image"/>${proj.icon?'Иконка загружена · заменить':'Иконка игры (.png / .ico)'}<input type="file" accept=".png,.ico,image/png,image/x-icon" hidden onChange=${e=>{if(e.target.files[0])loadIcon(e.target.files[0])}}/></label></div>`;
+  const uiProps=()=>{
+    if(view==='menu'){const b=mn.btns.find(x=>x.id===mb)||mn.btns[0],u=q=>upBtn(b.id,q);return html`<div>
+      <${F} t="Фон меню">${so(mn.bg,v=>upU('menu',{bg:v}),imgs)}<//>
+      <${F} t="Музыка меню">${so(mn.music,v=>upU('menu',{music:v}),[['','— нет —'],...assets.filter(a=>a.kind==='audio').map(a=>[a.id,a.name])])}<//>
+      <${F} t="Шрифт проекта">${so(ui.font,v=>setUi(x=>({...x,font:v})),[['','стандартный'],...assets.filter(a=>a.kind==='font').map(a=>[a.id,a.name])])}<//>
+      <${H} t=${'Кнопка «'+b.label+'»'}/>
+      <${F} t="Текст"><input className=${inp} value=${b.label} onChange=${e=>u({label:e.target.value})}/><//>
+      <div className="grid grid-cols-3 gap-2">${num('Ширина',b.w,v=>u({w:v}))}${num('Высота',b.h,v=>u({h:v}))}${num('Шрифт',b.size,v=>u({size:v}))}</div>
+      ${hexF('Цвет текста',b.color,v=>u({color:v}))}${hexF('Цвет при наведении (hover)',b.hover,v=>u({hover:v}))}${hexF('Цвет подложки',b.bg,v=>u({bg:v}))}${rng('Прозрачность подложки',b.op,v=>u({op:v}),0,1,.01)}
+      <p className="text-xs text-zinc-500">Тяните кнопки по холсту. В коде координаты — доли 0–1.</p></div>`}
+    if(view==='prefs'){const set=(k,v)=>upU('prefs',{[k]:v});return html`<div>${[['fs','Режим экрана (окно / полный)'],['music','Громкость музыки'],['sfx','Громкость звуков'],['master','Общая громкость'],['speed','Скорость текста'],['auto','Авто-перемотка'],['skipU','Пропускать непрочитанное'],['skipC','Пропуск после выборов']].map(([k,t])=>html`<${Chk} key=${k} v=${pf[k]} on=${v=>set(k,v)} t=${t}/>`)}
+      ${hexF('Фон окна настроек',pf.bg,v=>set('bg',v))}${hexF('Цвет ползунков',pf.slider,v=>set('slider',v))}${hexF('Цвет кнопок',pf.btn,v=>set('btn',v))}${hexF('Кнопки при наведении',pf.hover,v=>set('hover',v))}</div>`}
+    const d=sty,set=(k,v)=>upU('say',{[k]:v});return html`<div>
+      ${rng('Позиция по горизонтали',d.x,v=>set('x',v),0,1,.01)}${rng('Позиция по вертикали',d.y,v=>set('y',v),0,1,.01)}
+      <div className="grid grid-cols-2 gap-2">${num('Ширина',d.w,v=>set('w',v))}${num('Высота',d.h,v=>set('h',v))}${num('Скругление',d.radius,v=>set('radius',v))}${num('Отступ текста',d.pad,v=>set('pad',v))}${num('Размер шрифта',d.size,v=>set('size',v))}</div>
+      ${hexF('Цвет подложки',d.color,v=>set('color',v))}${rng('Прозрачность',d.op,v=>set('op',v),0,1,.01)}
+      <${F} t="Своя картинка-рамка (вместо цвета)">${so(ui.say.img||'',v=>set('img',v),imgs)}<//>
+      <${H} t="Быстрое меню"/><${Chk} v=${d.qmOff} on=${v=>set('qmOff',v)} t="Убрать все иконки (минимализм)"/>
+      ${!d.qmOff&&[['back','Назад'],['history','История'],['skip','Пропуск'],['auto','Авто'],['save','Сохранить']].map(([k,t])=>html`<${Chk} key=${k} v=${d.qm[k]} on=${v=>set('qm',{...d.qm,[k]:v})} t=${t}/>`)}
+      <${F} t="Свой код для screen say (необязательно)"><textarea rows="5" className=${inp+' font-mono'} value=${d.custom||''} onChange=${e=>set('custom',e.target.value)}></textarea><//></div>`};
+  const editorView=()=>{
+    if(view==='menu')return html`<${Scene} pad=${true} sty=${sty} bg=${A[mn.bg]?{src:A[mn.bg].src,w:1920,h:1080,n:'mb'}:null} spr=${[]} say=${null} extra=${k=>mn.btns.map(b=>html`<${DBtn} key=${b.id} b=${b} k=${k} on=${mb===b.id} pick=${id=>{setMb(id);setRt('p')}} upd=${upBtn}/>`)}/>`;
+    if(view==='say'){const f=assets.find(a=>a.kind==='bg');return html`<${Scene} pad=${true} sty=${sty} bg=${f?{src:f.src,w:1920,h:1080,n:'sv'}:null} spr=${[]} say=${{who:'Антон',text:'Пример реплики: так будет выглядеть окно диалога.',color:'#FF4D4D'}}/>`}
+    return html`<div className="rounded-lg p-4 overflow-auto" style=${{background:pf.bg,aspectRatio:'16 / 9'}}><div className="text-center text-xl mb-3 text-white">Настройки</div><div className="max-w-md mx-auto space-y-3 text-sm text-white">
+      ${pf.fs?html`<div className="flex gap-6" style=${{color:pf.btn}}><span>Окно</span><span>Полный экран</span></div>`:null}
+      ${[['music','Музыка'],['sfx','Звуки'],['master','Общая громкость'],['speed','Скорость текста'],['auto','Авто-перемотка']].filter(x=>pf[x[0]]).map(x=>html`<div key=${x[0]} className="flex items-center gap-3"><span className="w-36">${x[1]}</span><div className="flex-1 h-3 rounded bg-white/20"><div className="h-3 rounded w-2/3" style=${{background:pf.slider}}></div></div></div>`)}
+      ${pf.skipU?html`<div style=${{color:pf.btn}}>Пропускать непрочитанное</div>`:null}${pf.skipC?html`<div style=${{color:pf.btn}}>Пропуск после выборов</div>`:null}</div></div>`};
+  const sl=Object.values(spr).sort((a,b)=>(b.z||1)-(a.z||1));
+  const layers=sl.length?html`<div className="shrink-0 space-y-1 px-1">${sl.map(b=>html`<div key=${b.id} className="flex items-center gap-2 text-xs bg-white/5 rounded px-2 py-1"><span className="flex-1 truncate">${(A[b.assetId]||{}).name} · zorder ${b.z||1}</span>
+    <button className="p-1.5 hover:bg-white/10 rounded" title="На передний план" onClick=${()=>layer(b.assetId,1)}><${I} n="ChevronsUp"/></button><button className="p-1.5 hover:bg-white/10 rounded" title="На задний план" onClick=${()=>layer(b.assetId,-1)}><${I} n="ChevronsDown"/></button></div>`)}</div>`:null;
+  const pnl=(id,extra)=>`${tab===id?'flex':'hidden'} md:flex flex-col flex-1 min-h-0 md:flex-none ${extra} bg-[#0f1218] overflow-y-auto`;
+
+  return html`<div className="h-full flex flex-col md:flex-row">
+  <aside className=${pnl('a','md:w-64 md:border-r border-white/10 p-3')}>
+    <${H} t="Ассеты"/>
+    <div id="sec-assets" className=${'flex flex-col gap-2 '+(hl==='assets'?'ring-2 ring-violet-500 rounded p-1':'')}>${Up('bg','Загрузить фон','Image')}${Up('sprite','Загрузить спрайт (PNG)','User')}${Up('audio','Загрузить звук (mp3/ogg/wav)','Music')}${Up('font','Шрифт (.ttf / .otf)','Type')}</div>
+    <div className="mt-2 space-y-1">${assets.map(a=>html`<div key=${a.id} className="flex items-center gap-2 text-xs bg-white/5 rounded p-1">
+      <img src=${a.src} className="w-9 h-9 object-contain bg-black/40 rounded"/><span className="flex-1 truncate">${a.name}</span>
+      <button className="p-1.5 hover:bg-white/10 rounded" title="На сцену" onClick=${()=>{addBlocks([blockFor(a)]);setTab('b')}}><${I} n="Plus"/></button></div>`)}</div>
+    <${H} t="Шаги сценария"/>
+    <div className="flex flex-col gap-2">
+      <button className=${btn} onClick=${addSay}><${I} n="MessageSquare"/>+ Текст <span className="ml-auto text-[10px] text-zinc-500">Ctrl+Enter</span></button>
+      <button className=${btn} onClick=${()=>{addBlocks([{type:'code',code:''}]);setTab('c')}}><${I} n="Code"/>+ Свой код Ren'Py</button>
+      <button className=${btn} onClick=${()=>{const id=Object.keys(spr).pop()||(assets.find(a=>a.kind==='sprite')||{}).id;if(id)addBlocks([{type:'hide',assetId:id}]);else hint('Сначала загрузите спрайт — нажмите, чтобы перейти к загрузке','assets')}}><${I} n="EyeOff"/>+ Убрать спрайт</button></div>${more}${varsUI}${charsUI}
+    <${H} t="Библиотека пресетов"/>
+    <div className="flex gap-1"><input className=${inp} placeholder="Название" value=${pname} onChange=${e=>setPname(e.target.value)}/><button className=${btn} title="Сохранить отмеченные (или все) блоки" onClick=${savePreset}><${I} n="Save"/></button></div>
+    <p className="text-[11px] text-zinc-500 mt-1">Сохраняются отмеченные галочкой блоки, а если ничего не отмечено — вся лента.</p>
+    <div className="mt-2 space-y-1">${presets.map(p=>html`<div key=${p.id} className="flex items-center gap-1 text-xs bg-white/5 rounded p-1.5"><span className="flex-1 truncate">${p.name} · ${p.blocks.length}</span>
+      <button className="p-1.5 hover:bg-white/10 rounded" title="Вставить" onClick=${()=>loadPreset(p)}><${I} n="Plus"/></button>
+      <button className="p-1.5 hover:bg-white/10 rounded" onClick=${()=>setPresets(x=>x.filter(y=>y.id!==p.id))}><${I} n="Trash2"/></button></div>`)}</div>
+    <div className="flex gap-2 mt-2"><button className=${btn} onClick=${()=>saveFile('presets.json',JSON.stringify({presets}),setMsg)}><${I} n="FileJson"/>Экспорт</button>
+      <label className=${btn+' cursor-pointer'}><${I} n="Upload"/>Импорт<input type="file" accept=".json" hidden onChange=${e=>{if(e.target.files[0])importJson(e.target.files[0]);e.target.value=''}}/></label></div>
+  </aside>
+
+  <main className=${(tab==='b'?'flex':'hidden')+' md:flex flex-col flex-1 min-w-0 min-h-0 p-2 gap-2 bg-[#0b0d12] overflow-y-auto'}>
+    <div className="flex gap-1 shrink-0 overflow-x-auto">${[['story','Сценарий'],['menu','Главное меню'],['prefs','Экран настроек'],['say','Окно диалогов']].map(([k,t])=>html`<button key=${k} onClick=${()=>{setView(k);setRt('p')}} className=${'px-3 py-1.5 rounded text-sm whitespace-nowrap '+(view===k?'bg-white/15 text-white':'text-zinc-400 hover:bg-white/5')}>${t}</button>`)}</div>
+    ${view==='story'?html`
+    <div className="flex items-center gap-1 shrink-0 overflow-x-auto">${branches.map(b=>html`<button key=${b.id} onClick=${()=>{setBr(b.id);setSel(null);setPv(null)}} className=${'px-2.5 py-1 rounded text-xs whitespace-nowrap '+(b.id===br?'bg-violet-600':'bg-white/5 hover:bg-white/10')}>${b.name}</button>`)}
+      <button className=${btn} title="Новая ветка" onClick=${()=>{const id=nb();setBr(id);setSel(null);setPv(null)}}><${I} n="Plus"/></button></div>
+    <div className="flex items-center gap-1 shrink-0"><input className=${inp} title="Название ветки" value=${bnm(br)} onChange=${e=>setBranches(bs=>bs.map(b=>b.id===br?{...b,name:e.target.value}:b))}/>
+      ${br!==branches[0].id&&html`<button className=${btn} title="Удалить ветку" onClick=${()=>{setBranches(bs=>bs.filter(b=>b.id!==br));setBr(branches[0].id);setSel(null);setPv(null)}}><${I} n="Trash2"/></button>`}
+      <button className=${pri+' whitespace-nowrap'} onClick=${()=>setPlay({start:null,k:Date.now(),store:{hist:[],log:[]}})}><${I} n="Play"/>Играть</button></div>
+    <${Scene} pad=${true} sty=${sty} bg=${bg&&A[bg.assetId]?{src:A[bg.assetId].src,w:bg.w,h:bg.h,n:bg.id}:null} spr=${Object.values(spr).filter(b=>A[b.assetId]).map(b=>({...b,a:A[b.assetId],n:b.id}))} say=${say&&{...say,color:(chars.find(c=>c.id===say.ch)||{}).color}} menu=${menu} ed=${{upd,pick,clamp,sel}} empty=${!bg&&!blocks.length}/>
+    <div className="flex items-center gap-4 px-1 shrink-0"><${Chk} v=${clamp} on=${setClamp} t="Ограничить границами экрана"/><span className="text-xs text-zinc-500 mb-3">Кадр 1920×1080</span></div>
+    ${layers}
+    <div className="flex-1 min-h-[120px] overflow-y-auto space-y-1">
+      ${!blocks.length&&html`<p className="text-sm text-zinc-500 p-2">Лента пуста. Добавьте фон, спрайт или реплику.</p>`}
+      ${blocks.map((b,i)=>html`<div key=${b.id} onClick=${()=>go(b.id)} className=${'flex items-center gap-2 rounded px-2 py-1.5 text-sm cursor-pointer border '+(sel===b.id?'border-violet-500 bg-violet-500/10':'border-transparent bg-white/5 hover:bg-white/10')+(i===idx?' ring-1 ring-white/20':'')}>
+        <input type="checkbox" checked=${!!b.chk} onClick=${e=>e.stopPropagation()} onChange=${e=>upd(b.id,{chk:e.target.checked})} className="accent-violet-500"/>
+        <${I} n=${ICON[b.type]}/><span className="flex-1 truncate">${lab(b)}</span>
+        ${sel===b.id&&html`<span className="flex" onClick=${e=>e.stopPropagation()}>
+          <button className="p-1.5 hover:bg-white/10 rounded" onClick=${()=>move(b.id,-1)}><${I} n="ArrowUp"/></button>
+          <button className="p-1.5 hover:bg-white/10 rounded" onClick=${()=>move(b.id,1)}><${I} n="ArrowDown"/></button>
+          <button className="p-1.5 hover:bg-red-500/20 rounded text-red-300" onClick=${()=>del(b.id)}><${I} n="Trash2"/></button></span>`}</div>`)}
+    </div>
+`:editorView()}
+  </main>
+
+  <aside className=${pnl('c','md:w-80 md:border-l border-white/10')}>
+    <div className="flex border-b border-white/10 shrink-0">${[['p','Свойства'],['c','Код']].map(([id,t])=>html`<button key=${id} onClick=${()=>setRt(id)} className=${'flex-1 py-2.5 text-sm '+(rt===id?'text-violet-300 border-b-2 border-violet-500':'text-zinc-400')}>${t}</button>`)}</div>
+    <div className="p-3 flex-1">
+    ${rt==='p'?(view==='story'?props():uiProps()):html`<div>
+      ${projUI}<div className="flex gap-2 mb-2"><button className=${pri+' flex-1'} onClick=${()=>saveFile(fsel,code,setMsg)}><${I} n="Download"/>Скачать ${fsel}</button>
+        <button className=${btn} title="Копировать" onClick=${()=>navigator.clipboard.writeText(code).then(()=>setMsg('Скопировано'),()=>setMsg('Не удалось скопировать'))}><${I} n="Copy"/></button></div>
+      <button className=${pri+' w-full mb-3'} onClick=${()=>zipMod(branches,assets,vars,frac,chars,ui,proj,setMsg)}><${I} n="Package"/>Скачать мод (.zip)</button>
+      <${Chk} v=${frac} on=${setFrac} t="Позиции в долях 0–1 (иначе в пикселях)"/>
+      <pre className="text-[11px] leading-relaxed font-mono bg-[#07080b] border border-white/10 rounded p-2 overflow-x-auto whitespace-pre">${code}</pre>
+      <p className="text-xs text-zinc-500 mt-2">Положите script.rpy в game/ мода, а картинки — в game/images/.</p></div>`}
+    </div>
+  </aside>
+
+  ${play&&html`<${Player} key=${play.k} brs=${branches} assets=${assets} vars=${vars} chars=${chars} ui=${ui} start=${play.start} store=${play.store} onLoad=${(sn,st)=>setPlay({start:sn,k:Date.now(),store:st||{hist:[],log:[]}})} onClose=${()=>setPlay(false)}/>`}
+  ${msg&&html`<button className=${'fixed z-40 left-1/2 -translate-x-1/2 bottom-16 md:bottom-4 max-w-[92vw] px-4 py-2 rounded-lg shadow-lg text-sm '+(goto?'bg-violet-600 hover:bg-violet-500':'bg-zinc-800 border border-white/10')} onClick=${()=>goto?gotoSec(goto):setMsg('')}>${msg}${goto?' →':''}</button>`}
+  <nav className="md:hidden flex shrink-0 border-t border-white/10 bg-[#0f1218]">${[['a','Layers','Ассеты'],['b','Image','Сцена'],['c','Code','Свойства']].map(([id,ic,t])=>html`<button key=${id} onClick=${()=>setTab(id)} className=${'flex-1 py-2 flex flex-col items-center gap-0.5 text-xs '+(tab===id?'text-violet-300':'text-zinc-500')}><${I} n=${ic}/>${t}</button>`)}</nav>
+  </div>`;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+</script></body></html>
